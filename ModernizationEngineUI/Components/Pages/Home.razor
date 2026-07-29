@@ -13,6 +13,16 @@
 
 <PageTitle>Modernization Engine</PageTitle>
 
+<style>
+    .monaco-full-height {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+    }
+</style>
+
 <div class="container-fluid bg-dark text-light p-3" style="height: 100vh; display: flex; flex-direction: column;">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h2>Modernization Engine Pipeline</h2>
@@ -22,8 +32,12 @@
     </div>
 
     <!-- Monaco Diff Editor -->
-    <div style="flex: 1; border: 1px solid #444; border-radius: 4px; overflow: hidden; margin-bottom: 15px;">
-        <StandaloneDiffEditor Id="monaco-diff-editor" ConstructionOptions="DiffEditorConstructionOptions" OnDidInit="EditorOnDidInit" @ref="_diffEditor" />
+    <div style="position: relative; flex: 1; border: 1px solid #444; border-radius: 4px; overflow: hidden; margin-bottom: 15px;">
+    <StandaloneDiffEditor Id="monaco-diff-editor" 
+                          CssClass="monaco-full-height"
+                          ConstructionOptions="DiffEditorConstructionOptions" 
+                          OnDidInit="EditorOnDidInit"
+                          @ref="_diffEditor" />
     </div>
 
     <!-- Agent Logging Panel -->
@@ -64,20 +78,16 @@ class Worker
     }
 
     private async Task EditorOnDidInit()
+{
+    await _diffEditor.SetModel(new DiffEditorModel
     {
-        await Global.SetTheme(JSRuntime, "vs-dark");
-
-        var originalModel = await Global.CreateModel(JSRuntime, InitialLegacyCode, "csharp", "modernization-original");
-        var modifiedModel = await Global.CreateModel(JSRuntime, InitialLegacyCode, "csharp", "modernization-modified");
-
-        await _diffEditor.SetModel(new DiffEditorModel
-        {
-            Original = originalModel,
-            Modified = modifiedModel
-        });
-
-        AddLog("> System Idle. Ready to scan.", "#a0a0a0");
-    }
+        Original = await Global.CreateModel(JSRuntime, InitialLegacyCode, "csharp"),
+        Modified = await Global.CreateModel(JSRuntime, InitialLegacyCode, "csharp")
+    });
+    
+    AddLog("> System Idle. Ready to scan.", "#a0a0a0");
+    StateHasChanged();
+}
 
     private async Task RunAgent()
     {
