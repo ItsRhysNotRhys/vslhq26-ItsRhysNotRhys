@@ -11,6 +11,7 @@
 @using BlazorMonaco.Editor
 @inject IJSRuntime JSRuntime
 @inject IConfiguration Config
+@inject ModernizationHistoryService History
 
 <PageTitle>Modernization Engine</PageTitle>
 
@@ -79,6 +80,8 @@ anti-patterns, and generate a modernized version in the right pane.";
 
     private async Task EditorOnDidInit()
 {
+    await Global.SetTheme(JSRuntime, "vs-dark");
+
     await _diffEditor.SetModel(new DiffEditorModel
     {
         Original = await Global.CreateModel(JSRuntime, InitialLegacyCode, "csharp"),
@@ -293,6 +296,15 @@ anti-patterns, and generate a modernized version in the right pane.";
                 {
                     AddLog("> ❌ FAILED: Code requires manual developer intervention.", "red");
                 }
+
+                History.Add(new HistoryEntry(
+                    Timestamp: DateTime.Now,
+                    PatternDescription: rule.Description,
+                    OriginalCode: currentLegacyCode,
+                    ModernizedCode: newRoot.ToFullString(),
+                    Explanation: result.Explanation,
+                    Severity: result.Severity,
+                    BuildSucceeded: buildResult.IsSuccess));
             }
             finally
             {
