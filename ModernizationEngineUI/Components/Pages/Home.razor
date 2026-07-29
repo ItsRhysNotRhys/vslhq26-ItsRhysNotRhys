@@ -28,6 +28,9 @@
         <h2>Modernization Engine Pipeline</h2>
         <div class="d-flex align-items-center gap-2">
             <InputFile OnChange="OnFileSelected" accept=".cs,text/plain" class="form-control form-control-sm bg-secondary text-light border-0" style="width: 260px;" />
+            <button class="btn btn-outline-light" @onclick="CopyModernizedCode">
+                Copy Modernized Code
+            </button>
             <button class="btn btn-primary" @onclick="RunAgent" disabled="@_isRunning">
                 @if (_isRunning) { <span>Running...</span> } else { <span>Run Agentic Refactor</span> }
             </button>
@@ -110,6 +113,20 @@ class Worker
         catch (Exception ex)
         {
             AddLog($"> ERROR loading file: {ex.Message}", "red");
+        }
+    }
+
+    private async Task CopyModernizedCode()
+    {
+        try
+        {
+            string modernizedCode = await _diffEditor.ModifiedEditor.GetValue();
+            await JSRuntime.InvokeVoidAsync("navigator.clipboard.writeText", modernizedCode);
+            AddLog("> Modernized code copied to clipboard.", "#4af626");
+        }
+        catch (Exception ex)
+        {
+            AddLog($"> ERROR copying to clipboard: {ex.Message}", "red");
         }
     }
 
