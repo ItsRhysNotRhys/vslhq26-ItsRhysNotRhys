@@ -26,9 +26,12 @@
 <div class="container-fluid bg-dark text-light p-3" style="height: 100vh; display: flex; flex-direction: column;">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h2>Modernization Engine Pipeline</h2>
-        <button class="btn btn-primary" @onclick="RunAgent" disabled="@_isRunning">
-            @if (_isRunning) { <span>Running...</span> } else { <span>Run Agentic Refactor</span> }
-        </button>
+        <div class="d-flex align-items-center gap-2">
+            <InputFile OnChange="OnFileSelected" accept=".cs,text/plain" class="form-control form-control-sm bg-secondary text-light border-0" style="width: 260px;" />
+            <button class="btn btn-primary" @onclick="RunAgent" disabled="@_isRunning">
+                @if (_isRunning) { <span>Running...</span> } else { <span>Run Agentic Refactor</span> }
+            </button>
+        </div>
     </div>
 
     <!-- Monaco Diff Editor -->
@@ -88,6 +91,27 @@ class Worker
     AddLog("> System Idle. Ready to scan.", "#a0a0a0");
     StateHasChanged();
 }
+
+    private async Task OnFileSelected(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            const long maxFileSize = 1024 * 1024; // 1 MB is plenty for a single legacy source file
+            using var stream = e.File.OpenReadStream(maxFileSize);
+            using var reader = new StreamReader(stream);
+            string fileContent = await reader.ReadToEndAsync();
+
+            await _diffEditor.OriginalEditor.SetValue(fileContent);
+            await _diffEditor.ModifiedEditor.SetValue(fileContent);
+
+            _logs.Clear();
+            AddLog($"> Loaded '{e.File.Name}' ({fileContent.Length} chars). Ready to scan.", "#a0a0a0");
+        }
+        catch (Exception ex)
+        {
+            AddLog($"> ERROR loading file: {ex.Message}", "red");
+        }
+    }
 
     private async Task RunAgent()
     {
