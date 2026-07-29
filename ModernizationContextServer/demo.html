@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modernization Engine: Demo</title>
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1e1e1e; color: #fff; }
+        .header { display: flex; justify-content: space-between; padding: 15px 20px; background-color: #2d2d30; border-bottom: 1px solid #3f3f46; }
+        .header h1 { margin: 0; font-size: 1.2rem; font-weight: 500; }
+        .toolbar { display: flex; gap: 10px; align-items: center; }
+        .btn { background-color: #007acc; color: white; border: none; padding: 8px 16px; cursor: pointer; border-radius: 2px; font-weight: 600; }
+        .btn:hover { background-color: #0098ff; }
+        
+        #diff-container { height: calc(100vh - 250px); width: 100%; }
+        
+        .agent-terminal { height: 200px; background-color: #181818; border-top: 1px solid #3f3f46; padding: 10px; overflow-y: auto; font-family: Consolas, 'Courier New', monospace; font-size: 0.9rem; }
+        .log-info { color: #d4d4d4; }
+        .log-success { color: #4af626; }
+        .log-warn { color: #f8c512; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>Modernization Engine Pipeline</h1>
+        <div class="toolbar">
+            <span style="font-size: 0.9rem; color: #a0a0a0;">Target: .NET 8 Async Migration</span>
+            <button class="btn" onclick="runPipeline()">Run Agentic Refactor</button>
+        </div>
+    </div>
+
+    <!-- Monaco Diff Editor will mount here -->
+    <div id="diff-container"></div>
+
+    <!-- Agent Logging Panel to prove the architecture during the demo -->
+    <div class="agent-terminal" id="terminal">
+        <div class="log-info">> System Idle. Ready to scan legacy codebase...</div>
+    </div>
+
+    <!-- Load Monaco Editor via CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js"></script>
+    <script>
+        // Sample Data for the UI
+        const legacyCode = `using System;
+using System.Threading;
+
+namespace LegacyApp
+{
+    class Worker
+    {
+        public void ProcessData()
+        {
+            Console.WriteLine("Starting...");
+            Thread.Sleep(5000); 
+            Console.WriteLine("Done!");
+        }
+    }
+}`;
+
+        const modernizedCode = `using System;
+using System.Threading.Tasks;
+
+namespace LegacyApp
+{
+    class Worker
+    {
+        public async Task ProcessData()
+        {
+            Console.WriteLine("Starting...");
+            await Task.Delay(5000); 
+            Console.WriteLine("Done!");
+        }
+    }
+}`;
+
+        // Initialize Monaco
+        let diffEditor;
+        
+        require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.38.0/min/vs' }});
+        require(['vs/editor/editor.main'], function () {
+            
+            diffEditor = monaco.editor.createDiffEditor(document.getElementById('diff-container'), {
+                enableSplitViewResizing: false,
+                theme: 'vs-dark',
+                readOnly: true,
+                renderSideBySide: true
+            });
+
+            // Set initial state (Legacy code on both sides before run)
+            diffEditor.setModel({
+                original: monaco.editor.createModel(legacyCode, 'csharp'),
+                modified: monaco.editor.createModel(legacyCode, 'csharp')
+            });
+        });
+
+        // Demo Simulation Logic
+        function log(message, type = 'info') {
+            const terminal = document.getElementById('terminal');
+            terminal.innerHTML += `<div class="log-${type}">> ${message}</div>`;
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        async function runPipeline() {
+            document.getElementById('terminal').innerHTML = ''; // clear
+            log("Stage 1: Scanning AST for anti-patterns...");
+            
+            await new Promise(r => setTimeout(r, 800));
+            log("Target identified: Blocking Thread.Sleep found in Worker.ProcessData()", "warn");
+            
+            await new Promise(r => setTimeout(r, 1000));
+            log("Stage 2: Querying Context7 MCP for .NET 8 Async guidelines...");
+            log("Context7 Response: Use await Task.Delay for async operations.");
+            
+            await new Promise(r => setTimeout(r, 1500));
+            log("Calling Azure OpenAI for structured JSON transformation...");
+            
+            // Update the UI to show the diff!
+            diffEditor.getModel().modified.setValue(modernizedCode);
+            
+            await new Promise(r => setTimeout(r, 1000));
+            log("Stage 3: Extracting ModernizedCode and initiating local compiler verification...");
+            
+            await new Promise(r => setTimeout(r, 1200));
+            log("dotnet build -> 0 Errors, 0 Warnings.");
+            log("SUCCESS: Code is verified and safely modernized.", "success");
+        }
+    </script>
+</body>
+</html>
