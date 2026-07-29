@@ -1,0 +1,272 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@using System.IO
+@using System.Text.Json
+@using Microsoft.CodeAnalysis
+@using Microsoft.CodeAnalysis.CSharp
+@using Microsoft.CodeAnalysis.CSharp.Syntax
+@using OpenAI.Chat
+@using BlazorMonaco
+@using BlazorMonaco.Editor
+@inject IJSRuntime JSRuntime
+@inject IConfiguration Config
+
+<PageTitle>Modernization Engine</PageTitle>
+
+<div class="container-fluid bg-dark text-light p-3" style="height: 100vh; display: flex; flex-direction: column;">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2>Modernization Engine Pipeline</h2>
+        <button class="btn btn-primary" @onclick="RunAgent" disabled="@_isRunning">
+            @if (_isRunning) { <span>Running...</span> } else { <span>Run Agentic Refactor</span> }
+        </button>
+    </div>
+
+    <!-- Monaco Diff Editor -->
+    <div style="flex: 1; border: 1px solid #444; border-radius: 4px; overflow: hidden; margin-bottom: 15px;">
+        <StandaloneDiffEditor Id="monaco-diff-editor" ConstructionOptions="DiffEditorConstructionOptions" OnDidInit="EditorOnDidInit" @ref="_diffEditor" />
+    </div>
+
+    <!-- Agent Logging Panel -->
+    <div class="bg-black p-2" style="height: 250px; border: 1px solid #444; font-family: monospace; overflow-y: auto;" id="terminal-window">
+        @foreach (var log in _logs)
+        {
+            <div style="color: @log.Color">@log.Message</div>
+        }
+    </div>
+</div>
+
+@code {
+    private StandaloneDiffEditor _diffEditor = default!;
+    private bool _isRunning = false;
+    private List<(string Message, string Color)> _logs = new();
+
+    // Default sample for the demo
+    private const string InitialLegacyCode = @"using System;
+using System.Threading;
+
+class Worker
+{
+    public void ProcessData()
+    {
+        Console.WriteLine(""Starting..."");
+        Thread.Sleep(5000); 
+        Console.WriteLine(""Done!"");
+    }
+}";
+
+    private StandaloneDiffEditorConstructionOptions DiffEditorConstructionOptions(StandaloneDiffEditor editor)
+    {
+        return new StandaloneDiffEditorConstructionOptions
+        {
+            RenderSideBySide = true,
+            OriginalEditable = true
+        };
+    }
+
+    private async Task EditorOnDidInit()
+    {
+        await Global.SetTheme(JSRuntime, "vs-dark");
+
+        var originalModel = await Global.CreateModel(JSRuntime, InitialLegacyCode, "csharp", "modernization-original");
+        var modifiedModel = await Global.CreateModel(JSRuntime, InitialLegacyCode, "csharp", "modernization-modified");
+
+        await _diffEditor.SetModel(new DiffEditorModel
+        {
+            Original = originalModel,
+            Modified = modifiedModel
+        });
+
+        AddLog("> System Idle. Ready to scan.", "#a0a0a0");
+    }
+
+    private async Task RunAgent()
+    {
+        _isRunning = true;
+        _logs.Clear();
+        StateHasChanged();
+
+        try
+        {
+            // 1. Get Code from Monaco Left Pane
+            AddLog("> Stage 1: Parsing AST for anti-patterns...", "white");
+            string currentLegacyCode = await _diffEditor.OriginalEditor.GetValue();
+
+            SyntaxTree tree = CSharpSyntaxTree.ParseText(currentLegacyCode);
+            CompilationUnitSyntax root = tree.GetCompilationUnitRoot();
+            var methods = root.DescendantNodes().OfType<MethodDeclarationSyntax>();
+
+            var match = ModernizationEngineCore.FindAntiPattern(methods);
+
+            if (match == null)
+            {
+                AddLog("> No anti-patterns found.", "yellow");
+                return;
+            }
+
+            MethodDeclarationSyntax targetMethod = match.Value.Method;
+            AntiPatternRule rule = match.Value.Rule;
+            AddLog($"> Target identified ({rule.Description}): {targetMethod.Identifier.Text}", "yellow");
+
+            // 2. Fetch Context7 Docs
+            AddLog("> Stage 2: Querying Context7 MCP for API guidelines...", "white");
+            string? context7Docs = await ModernizationEngineCore.GetContext7DocsAsync(Config, ".NET", rule.Context7Query);
+            string groundingSection = string.Empty;
+            if (!string.IsNullOrEmpty(context7Docs))
+            {
+                AddLog("> Context7 Documentation Retrieved Successfully.", "#4af626");
+                groundingSection = $"\n\nUse the following up-to-date reference documentation (via Context7) to ensure the APIs you use are accurate:\n{context7Docs}";
+            }
+
+            // 3. OpenAI Call
+            AddLog("> Generating structured JSON output via OpenAI...", "white");
+            string apiKey = Config["OpenAI:ApiKey"] ?? throw new InvalidOperationException("OpenAI API key not found.");
+            ChatClient chatClient = new(model: "gpt-4o", apiKey: apiKey);
+
+            string schemaJson = @"{
+              ""type"": ""object"",
+              ""properties"": {
+                ""ModernizedCode"": { ""type"": ""string"", ""description"": ""The fully refactored C# method"" },
+                ""Explanation"": { ""type"": ""string"", ""description"": ""Why this change was made"" },
+                ""Severity"": { ""type"": ""string"", ""enum"": [""Low"", ""Medium"", ""High""] }
+              },
+              ""required"": [""ModernizedCode"", ""Explanation"", ""Severity""],
+              ""additionalProperties"": false
+            }";
+
+            ChatCompletionOptions options = new()
+            {
+                ResponseFormat = ChatResponseFormat.CreateJsonSchemaFormat(
+                    jsonSchemaFormatName: "ModernizationResult",
+                    jsonSchema: BinaryData.FromString(schemaJson),
+                    jsonSchemaIsStrict: true
+                ),
+                Temperature = 0.1f
+            };
+
+            string systemPrompt = $@"You are an expert C# modernization engine.
+            {rule.SystemPromptRules}
+            Return ONLY the single refactored method in the ModernizedCode field: no using directives, no namespace, no wrapping class. If the fix requires a type only available via an additional using directive (e.g. StringBuilder, List<T>), use its fully-qualified name (e.g. System.Text.StringBuilder) instead of adding a using directive.
+            Rule: Do NOT rename the method or change its parameter list, even if convention would suggest an 'Async' suffix. You only see this one method in isolation and cannot see or update its callers elsewhere in the codebase, so renaming it would break the build." + groundingSection;
+
+            string userPrompt = $"Refactor this method:\n\n{targetMethod.ToFullString()}";
+
+            List<ChatMessage> messages = new()
+            {
+                new SystemChatMessage(systemPrompt),
+                new UserChatMessage(userPrompt)
+            };
+
+            ChatCompletion completion = await chatClient.CompleteChatAsync(messages, options);
+            var result = JsonSerializer.Deserialize<ModernizationResult>(completion.Content[0].Text);
+
+            if (result == null || string.IsNullOrWhiteSpace(result.ModernizedCode))
+            {
+                AddLog("> Error: Failed to parse LLM response.", "red");
+                return;
+            }
+
+            AddLog($"> Transformation complete. Severity: {result.Severity}", "white");
+            AddLog($"> Explanation: {result.Explanation}", "#a0a0a0");
+
+            // 4. Roslyn AST Replacement
+            var newMethodSyntax = SyntaxFactory.ParseMemberDeclaration(result.ModernizedCode);
+            if (newMethodSyntax == null)
+            {
+                AddLog("> Error: Could not parse the modernized code as a valid member declaration.", "red");
+                return;
+            }
+
+            // Guard: the LLM only ever sees this one method in isolation, so force the original
+            // name back on if it renamed the method - otherwise callers elsewhere would break.
+            if (newMethodSyntax is MethodDeclarationSyntax newMethod && newMethod.Identifier.Text != targetMethod.Identifier.Text)
+            {
+                AddLog($"> Warning: model renamed '{targetMethod.Identifier.Text}' to '{newMethod.Identifier.Text}'; reverting to keep callers working.", "yellow");
+                newMethodSyntax = newMethod.WithIdentifier(targetMethod.Identifier);
+            }
+
+            newMethodSyntax = newMethodSyntax.WithTriviaFrom(targetMethod);
+            CompilationUnitSyntax newRoot = root.ReplaceNode(targetMethod, newMethodSyntax);
+
+            bool hasTasksUsing = root.Usings.Any(u => u.Name?.ToString() == "System.Threading.Tasks");
+            if (!hasTasksUsing)
+            {
+                var tasksUsing = SyntaxFactory.UsingDirective(SyntaxFactory.ParseName(" System.Threading.Tasks"))
+                                            .WithTrailingTrivia(SyntaxFactory.CarriageReturnLineFeed);
+                newRoot = newRoot.AddUsings(tasksUsing);
+            }
+
+            if (newMethodSyntax is MethodDeclarationSyntax modernizedMethod
+                && modernizedMethod.Modifiers.Any(SyntaxKind.AsyncKeyword))
+            {
+                newRoot = ModernizationEngineCore.PropagateAsyncToCallers(newRoot, targetMethod.Identifier.Text);
+            }
+
+            // Update the Right Pane visually
+            var modifiedModel = await _diffEditor.ModifiedEditor.GetModel();
+            await modifiedModel.SetValue(newRoot.ToFullString());
+
+            // 5. Stage 3 Verification (+ Self-Healing Loop)
+            AddLog("> Stage 3: Initiating local compiler verification...", "white");
+
+            string tempFile = Path.Combine(Path.GetTempPath(), $"ModernizationUI_{Guid.NewGuid():N}.cs");
+            try
+            {
+                await File.WriteAllTextAsync(tempFile, newRoot.ToFullString());
+                var buildResult = await ModernizationEngineCore.VerifyBuildAsync(tempFile);
+
+                if (!buildResult.IsSuccess)
+                {
+                    AddLog("> ⚠️ Compilation failed. Initiating Self-Healing Loop (Pass 1/1)...", "yellow");
+
+                    string repairPrompt = $"The modernized code failed to compile. Please fix the code based on these compiler errors:\n\n{buildResult.ErrorOutput}";
+                    messages.Add(new UserChatMessage(repairPrompt));
+                    ChatCompletion repairCompletion = await chatClient.CompleteChatAsync(messages, options);
+
+                    var repairResult = JsonSerializer.Deserialize<ModernizationResult>(repairCompletion.Content[0].Text);
+                    if (repairResult != null && !string.IsNullOrWhiteSpace(repairResult.ModernizedCode))
+                    {
+                        var repairedSyntax = SyntaxFactory.ParseMemberDeclaration(repairResult.ModernizedCode);
+                        if (repairedSyntax != null)
+                        {
+                            newRoot = root.ReplaceNode(targetMethod, repairedSyntax.WithTriviaFrom(targetMethod));
+                            await modifiedModel.SetValue(newRoot.ToFullString());
+                            await File.WriteAllTextAsync(tempFile, newRoot.ToFullString());
+
+                            AddLog("> Re-verifying build after repair...", "white");
+                            buildResult = await ModernizationEngineCore.VerifyBuildAsync(tempFile);
+                        }
+                    }
+                }
+
+                if (buildResult.IsSuccess)
+                {
+                    AddLog("> dotnet build -> 0 Errors.", "#4af626");
+                    AddLog("> SUCCESS: Code is verified and safely modernized.", "#4af626");
+                }
+                else
+                {
+                    AddLog("> ❌ FAILED: Code requires manual developer intervention.", "red");
+                }
+            }
+            finally
+            {
+                try { File.Delete(tempFile); } catch { /* best-effort cleanup */ }
+            }
+        }
+        catch (Exception ex)
+        {
+            AddLog($"> ERROR: {ex.Message}", "red");
+        }
+        finally
+        {
+            _isRunning = false;
+            StateHasChanged();
+        }
+    }
+
+    private void AddLog(string message, string color)
+    {
+        _logs.Add((message, color));
+        InvokeAsync(StateHasChanged);
+    }
+}
