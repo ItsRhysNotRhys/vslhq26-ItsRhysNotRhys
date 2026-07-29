@@ -143,10 +143,13 @@ partial class Program
             // Replace old method node with modernized method node
             CompilationUnitSyntax newRoot = root.ReplaceNode(targetMethod, newMethodSyntax);
 
-            // Ensure 'using System.Threading.Tasks;' is present at the top of the file
-            // (System.Threading alone does not provide the Task type used by async methods).
+            // Ensure 'using System.Threading.Tasks;' is present at the top of the file, but only
+            // if the modernized method actually references Task/Task<T> (System.Threading alone
+            // does not provide that type) - no point adding an unused using directive for fixes
+            // that don't touch async at all (e.g. ArrayList -> List<T>).
+            bool usesTaskType = Regex.IsMatch(newMethodSyntax.ToFullString(), @"\bTask\b");
             bool hasTasksUsing = root.Usings.Any(u => u.Name?.ToString() == "System.Threading.Tasks");
-            if (!hasTasksUsing)
+            if (usesTaskType && !hasTasksUsing)
             {
                 var tasksUsing = SyntaxFactory.UsingDirective(SyntaxFactory.ParseName(" System.Threading.Tasks"))
                                             .WithTrailingTrivia(SyntaxFactory.CarriageReturnLineFeed);
