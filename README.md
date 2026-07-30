@@ -56,3 +56,14 @@ This project features an interactive Blazor Server dashboard with an embedded Mo
    ```
 2. Open your browser and navigate to `http://localhost:5077` (or the port specified in your console output).
 3. Click **"Run Agentic Refactor"** to watch the engine parse the AST, fetch MCP context, generate code, and verify compilation locally.
+
+## ⚖️ License & Acknowledgements
+
+This project is licensed under the [MIT License](LICENSE). 
+
+We would like to acknowledge the following open-source projects and tools that made this engine possible:
+* **[Roslyn (Microsoft.CodeAnalysis)](https://github.com/dotnet/roslyn):** MIT License
+* **[Monaco Editor](https://microsoft.github.io/monaco-editor/):** MIT License
+* **[BlazorMonaco](https://github.com/serdarciplak/BlazorMonaco):** MIT License
+* **[Model Context Protocol (MCP) SDK](https://github.com/modelcontextprotocol/dotnet-sdk):** MIT License
+* **[Context7](https://context7.com/):** For up-to-date API framework grounding.
