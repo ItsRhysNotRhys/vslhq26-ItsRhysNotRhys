@@ -1,5 +1,8 @@
 # vslhq26-ItsRhysNotRhys
 
+# Author
+Rhys Martin - ItsRhysNotRhys
+
 # Modernization Engine ⚙️
 
 **VSLive! Microsoft AI Hackathon 2026 Submission**  
